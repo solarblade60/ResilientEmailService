@@ -1,5 +1,6 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
+using RupaHealth.MappingExtensions;
 using RupaHealth.Models.Parameters;
 using System;
 using System.Collections.Generic;
@@ -15,20 +16,29 @@ namespace RupaHealth.Controllers
 
         private readonly ILogger<EmailController> _logger;
         private readonly IEmailService _emailService;
+        private readonly IValidationService _validationService;
 
-        public EmailController(ILogger<EmailController> logger, IEmailService emailService)
+        public EmailController(ILogger<EmailController> logger, IEmailService emailService, IValidationService validationService)
         {
             _logger = logger;
             _emailService = emailService;
+            _validationService = validationService;
         }
 
         [HttpPost]
         [Route("")]
         public async Task<ActionResult> PostEmail([FromBody] EmailParams data)
         {
-            var wasSuccessful = await _emailService.HandleEmail(data);
+            //Validate email input fields
 
-            if (!wasSuccessful)
+            if (!_validationService.IsValidEmailFields(data))
+            {
+                return BadRequest();
+            }
+
+            var isSuccess = await _emailService.ResilientEmailDeliveryService(data.ToEmailDto());
+
+            if (!isSuccess)
             {
                 return BadRequest();
             }

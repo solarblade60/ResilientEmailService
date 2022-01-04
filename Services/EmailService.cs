@@ -1,7 +1,9 @@
 ﻿using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
+using RupaHealth.Constants;
+using RupaHealth.Helpers;
 using RupaHealth.Models.Dtos;
-using RupaHealth.Models.Parameters;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -9,23 +11,25 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Threading.Tasks;
-using System.Web;
 
 namespace RupaHealth
 {
     public class EmailService : IEmailService
     {
         private readonly IConfiguration _config;
+        private readonly ILogger _logger;
 
-        public EmailService(IConfiguration config)
+        public EmailService(IConfiguration config, ILogger<EmailService> logger)
         {
             _config = config;
+            _logger = logger;
         }
-        public async Task<bool> HandleEmail(EmailParams data)
-        {
-            var isSendGridSuccess = await SendEmailViaSendGrid(data);
 
-            if (!isSendGridSuccess)
+        public async Task<bool> ResilientEmailDeliveryService(EmailDto data)
+        {
+            var isSendGridEmailDeliverySuccess = await SendEmailViaSendGrid(data);
+
+            if (!isSendGridEmailDeliverySuccess)
             {
                 return await SendEmailViaMailGun(data);
             }
@@ -35,57 +39,121 @@ namespace RupaHealth
             }
         }
 
-        private async Task<bool> SendEmailViaSendGrid(EmailParams emailData)
+        private async Task<bool> SendEmailViaSendGrid(EmailDto emailData)
         {
-            var toEmailAddress = emailData.To;
-            var toName = emailData.To_Name;
-            var fromEmailAddress = emailData.From;
-            var fromName = emailData.From_Name;
-            var subject = emailData.Subject;
-            var htmlContent = HttpUtility.HtmlEncode(emailData.Body);//TODO
+            bool isSuccess = false;
 
-            SendGridEmailDto sendGridMessage = new SendGridEmailDto();
+            try
+            {
+                var request = CreateSendGridEmailRequest(emailData);
+
+                using var client = new HttpClient();
+
+                var response = await client.SendAsync(request);
+            }
+            catch (Exception e)
+            {
+                _logger.LogError("Error sending email via SendGrid", e);
+
+                throw;
+            }
+
+            return isSuccess;
+        }
+
+        private async Task<bool> SendEmailViaMailGun(EmailDto emailData)
+        {
+            bool isSuccess = false;
+
+            try
+            {
+                var request = CreateMailGunEmailRequest(emailData);
+
+                using var client = new HttpClient();
+
+                var response = await client.SendAsync(request);
+
+                isSuccess = response.IsSuccessStatusCode;
+            }
+            catch (Exception e)
+            {
+                _logger.LogError("Error sending email via MailGun", e);
+
+                throw;
+            }
+
+            return isSuccess;
+        }
+
+        private HttpRequestMessage CreateSendGridEmailRequest(EmailDto emailData)
+        {
+            HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Post, EmailDeliveryUrls.SendGridUrl);
+
+            //Authorization
+
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", EmailDeliveryAPIKeys.SendGridAPIKey);
+
+            //Content
+
+            SendGridEmailRequest sendGridRequest = new SendGridEmailRequest();
 
             var personalization = new PersonalizationDto();
-            personalization.Subject = subject;
-            var to = new EmailDto();
-            to.Email = toEmailAddress;
-            to.Name = toName;
-            personalization.To = new EmailDto[] { to };
-            sendGridMessage.Personalizations = new PersonalizationDto[] { personalization };
+
+            personalization.Subject = emailData.Subject;
+
+            var to = new EmailNameDto();
+            to.Email = emailData.ToEmailAddress;
+            to.Name = emailData.ToName;
+
+            personalization.To = new EmailNameDto[] { to };
+            sendGridRequest.Personalizations = new PersonalizationDto[] { personalization };
 
             var content = new ContentDto();
             content.Type = "text/plain";
-            content.Value = emailData.Body;
+            content.Value = StringHelper.ConvertHTMLStringToPlainText(emailData.Body);
 
-            sendGridMessage.Content = new ContentDto[] { content };
-            var from = new EmailDto();
-            from.Email = fromEmailAddress;
-            from.Name = fromName;
+            sendGridRequest.Content = new ContentDto[] { content };
 
-            sendGridMessage.From = from;
-            sendGridMessage.Reply_To = from;
+            var from = new EmailNameDto();
+            from.Email = emailData.FromEmailAddress;
+            from.Name = emailData.FromName;
 
-            var json = JsonConvert.SerializeObject(sendGridMessage);
-            var data = new StringContent(json, Encoding.UTF8, "application/json");
-            var sendGridUrl = "https://api.sendgrid.com/v3/mail/send";
+            sendGridRequest.From = from;
+            sendGridRequest.Reply_To = from;
 
-            HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Post, sendGridUrl);
+            var jsonContent = JsonConvert.SerializeObject(sendGridRequest);
+            var contentData = new StringContent(jsonContent, Encoding.UTF8, "application/json");
 
-            request.Content = data;
+            request.Content = contentData;
             request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
 
-            using var client = new HttpClient();
-            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "SG.WG6S6NtzRyqHOmmSyFyKqw.ShYdtntljF7uXhkQQ0HWKszL0gs6rWn7YYqetQVPsRY");
-
-            var response = await client.SendAsync(request);
-
-            return false;
+            return request;
         }
 
-        private async Task<bool> SendEmailViaMailGun(EmailParams emailData)
+        private HttpRequestMessage CreateMailGunEmailRequest(EmailDto emailData)
         {
-            return false;
+            HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Post, EmailDeliveryUrls.MailGunUrl);
+
+            //Authorization
+
+            var authenticationString = $"api:{EmailDeliveryAPIKeys.MailGunAPIKey}";
+            var base64EncodedAuthenticationString = Convert.ToBase64String(Encoding.ASCII.GetBytes(authenticationString));
+
+            request.Headers.Authorization = new AuthenticationHeaderValue("Basic", base64EncodedAuthenticationString);
+
+            //Content
+
+            var content = new FormUrlEncodedContent(new[]
+            {
+                new KeyValuePair<string, string>("from", emailData.FromEmailAddress),
+                new KeyValuePair<string, string>("to", emailData.ToEmailAddress),
+                new KeyValuePair<string, string>("subject", emailData.Subject),
+                new KeyValuePair<string, string>("text", StringHelper.ConvertHTMLStringToPlainText(emailData.Body))
+            });
+
+            request.Content = content;
+
+            return request;
         }
     }
 }
