@@ -12,7 +12,7 @@ SendGrid and MailGun email delivery in Postman. Once I was able to successfully 
 and began making the data models and services that were needed. After I was able to successfully get both working, I refactored it with
 modularity and good design in mind, including basic error handling as well. At all of these steps, I was continuously unit testing.
 
-I hardcoded the secret API keys in to my solution, but that is not secure at all. If this were production, I would have some cloud service
+I hardcoded the secret API keys in to my solution, but this is not secure at all. If this were production, I would have some cloud service
 or tool (like Azure KeyVault) to store and access these confidential secrets. In the interest of time, I also implemented basic input validation
 and HTML to plain text conversion techniques. If I had more time, I would have written more comprehensive methods to handle all test cases.
 
