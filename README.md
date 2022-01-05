@@ -10,7 +10,8 @@ up the basic structure. I created the test request in Postman to trigger this se
 Then, I created the SendGrid and MailGun accounts and went over their API documentation. Through trial and error, I reproduced the API request for both
 SendGrid and MailGun email delivery in Postman. Once I was able to successfully deliver emails, I began to move this functionality over to the code
 and began making the data models and services that were needed. After I was able to successfully get both working, I refactored it with
-modularity and good design in mind, including basic error handling as well. At all of these steps, I was continuously unit testing.
+modularity and good design in mind, including basic error handling as well. At all of these steps, I was continuously unit testing. The only other
+library I used (besides default Microsoft ones) is Newtonsoft.Json, a popular JSON framework for .NET.
 
 I hardcoded the secret API keys in to my solution, but this is not secure at all. If this were production, I would have some cloud service
 or tool (like Azure KeyVault) to store and access these confidential secrets. In the interest of time, I also implemented basic input validation
